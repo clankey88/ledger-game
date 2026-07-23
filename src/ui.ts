@@ -11,6 +11,7 @@ import {
 } from './state';
 import { triggerClick, cashOut, completeTask } from './loop';
 import { briefcaseSvg, coinSvg, ledgerSvg, trophySvg } from './assets';
+import { INVITE_BASE_URL } from './config';
 
 let currentScreen: Screen = 'onboarding';
 const taskCooldowns = new Map<string, number>();
@@ -554,7 +555,7 @@ function spawnFloatingText(x: number, y: number, text: string): void {
 }
 
 async function spawnFriendInvite(state: GameState): Promise<void> {
-  const inviteUrl = `https://clankey88.github.io/ledger-game/?ref=${state.user.id}`;
+  const inviteUrl = `${INVITE_BASE_URL}/?ref=${state.user.id}`;
   const message = `Join my company on Ledger and help me cash out this Sunday! ${inviteUrl}`;
 
   // Prefer native share on mobile
@@ -578,7 +579,7 @@ async function spawnFriendInvite(state: GameState): Promise<void> {
 
   // Demo fallback: simulate a friend joining when sharing isn't available
   const names = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley'];
-  const avatars = ['🐶', '', '🐭', '🐹', '🐰', '🦊'];
+  const avatars = ['🐶', '🐼', '🐭', '🐹', '🐰', '🦊'];
   const name = names[Math.floor(Math.random() * names.length)];
   const avatar = avatars[Math.floor(Math.random() * avatars.length)];
   addMember(state, {
