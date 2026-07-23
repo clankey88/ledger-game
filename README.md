@@ -2,6 +2,9 @@
 
 **A Telegram-style web game where you build companies with friends and cash out weekly.**
 
+🎮 **Play:** https://clankey88.github.io/ledger-game  
+📦 **Repo:** https://github.com/clankey88/ledger-game
+
 You are a Ledger in a world run by businesses. Create a company, invite friends, earn credits, and convert them to money every Sunday.
 
 ![Ledger screenshot](./public/screenshot.png)
