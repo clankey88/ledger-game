@@ -10,10 +10,13 @@ import {
   generateId,
 } from './state';
 import { triggerClick, cashOut, completeTask } from './loop';
-import { briefcaseSvg, coinSvg, ledgerSvg, trophySvg } from './assets';
+import { briefcaseSvg, ledgerSvg, trophySvg } from './assets';
 import { INVITE_BASE_URL } from './config';
+import { GameCanvas } from './canvas';
+import { showToast } from './toast';
 
 let currentScreen: Screen = 'onboarding';
+let gameCanvas: GameCanvas | null = null;
 const taskCooldowns = new Map<string, number>();
 const TASK_COOLDOWN_MS = 5000;
 
@@ -168,32 +171,24 @@ export function renderCreateCompany(_state: GameState): string {
 export function renderDashboard(state: GameState): string {
   const cps = computePassiveCps(state);
   return `
-    <div class="screen" id="screen-dashboard">
+    <canvas id="game-canvas"></canvas>
+    <div class="canvas-overlay">
       ${header('Your Ledger', state)}
-      <div class="card card-sticker text-center mb-3">
-        <p class="mb-1" style="color:var(--gray)">Current Balance</p>
-        <div class="mb-2" style="font-size:48px;font-weight:800;letter-spacing:-1px">
-          <span class="mono" id="dashboard-balance">${formatCredits(state.user.credits)}</span>
-          <span style="font-size:18px;color:var(--gray)">🪙</span>
+      <div class="flex justify-between items-center mb-2">
+        <div>
+          <div class="hud-balance"><span id="dashboard-balance">${formatCredits(state.user.credits)}</span> 🪙</div>
+          <div class="hud-cps">+<span id="dashboard-cps">${cps.toFixed(1)}</span> per second</div>
         </div>
-        <p style="font-size:14px;color:var(--gray)">+<span class="mono" id="dashboard-cps">${cps.toFixed(1)}</span> per second</p>
-        <button class="btn btn-primary btn-circular mt-3" id="hustle-btn" title="Hustle">⚡</button>
-        <p class="mt-2" style="font-size:12px;color:var(--gray)">Tap to hustle</p>
-      </div>
-      <div class="card mb-3">
-        <div class="flex justify-between items-center mb-2">
-          <h3 style="margin:0">Weekly Payout In</h3>
-          <span style="font-size:12px;color:var(--telegram-blue);font-weight:700">Sunday</span>
-        </div>
-        <div class="countdown mb-3" id="countdown">
-          ${countdownHtml(timeUntilPayout(state.weekEndTime))}
-        </div>
-        <div class="flex justify-between items-center" style="font-size:14px">
-          <span style="color:var(--gray)">Projected</span>
-          <span class="mono" style="font-weight:700">$${projectedEarnings(state.user.credits).toFixed(2)}</span>
+        <div class="text-center">
+          <div class="countdown" id="countdown">${countdownHtml(timeUntilPayout(state.weekEndTime))}</div>
+          <div style="font-size:13px;color:var(--gray);margin-top:4px">Sunday payout</div>
         </div>
       </div>
-      ${state.company ? companyCard(state) : inviteCard(state)}
+      <div style="font-size:14px;font-weight:700;color:var(--telegram-blue)">Projected: $${projectedEarnings(state.user.credits).toFixed(2)}</div>
+    </div>
+    <div class="canvas-controls">
+      <button class="btn btn-primary btn-circular" id="hustle-btn" title="Hustle">⚡</button>
+      <button class="btn btn-primary" id="cash-out-btn" ${state.user.credits < 1000 ? 'disabled' : ''}>Cash Out</button>
     </div>
     ${navDock('dashboard')}
   `;
@@ -206,42 +201,6 @@ function countdownHtml(ms: number): string {
     <div class="countdown-box"><span class="countdown-number">${t.h}</span><span class="countdown-label">Hrs</span></div>
     <div class="countdown-box"><span class="countdown-number">${t.m}</span><span class="countdown-label">Min</span></div>
     <div class="countdown-box"><span class="countdown-number">${t.s}</span><span class="countdown-label">Sec</span></div>
-  `;
-}
-
-function companyCard(state: GameState): string {
-  const company = state.company!;
-  const avatars = company.members
-    .slice(0, 4)
-    .map((m) => `<div class="avatar">${m.avatar}</div>`)
-    .join('');
-  return `
-    <div class="card card-sticker">
-      <div class="flex justify-between items-center mb-2">
-        <h2 style="margin:0">${company.name}</h2>
-        <span style="font-size:12px;color:var(--gray);font-weight:600">Lv. ${company.level}</span>
-      </div>
-      <p class="mb-2">${company.industry}</p>
-      <div class="flex justify-between items-center mb-3">
-        <div class="avatar-stack">${avatars}</div>
-        <span style="font-size:13px;color:var(--gray)">${company.members.length + 1} members</span>
-      </div>
-      <div class="progress-track mb-2">
-        <div class="progress-fill" style="width:${Math.min(100, (company.poolCredits / (company.level * 500)) * 100)}%"></div>
-      </div>
-      <p style="font-size:13px;color:var(--gray)">${formatCredits(Math.max(0, company.level * 500 - company.poolCredits))} credits to next level</p>
-    </div>
-  `;
-}
-
-function inviteCard(_state: GameState): string {
-  return `
-    <div class="card card-sticker text-center">
-      <div class="mb-2">${coinSvg}</div>
-      <h2 class="mb-1">No company yet</h2>
-      <p class="mb-3">Create one to earn together with friends.</p>
-      <button class="btn btn-primary" id="create-company-nav-btn">Create Company</button>
-    </div>
   `;
 }
 
@@ -385,6 +344,10 @@ export function render(state: GameState, screen: Screen = currentScreen): void {
   if (!app) return;
 
   currentScreen = screen;
+  if (gameCanvas) {
+    gameCanvas.destroy();
+    gameCanvas = null;
+  }
   let html = '';
   switch (screen) {
     case 'onboarding':
@@ -464,14 +427,43 @@ function attachEvents(state: GameState, screen: Screen): void {
   }
 
   if (screen === 'dashboard') {
+    const canvasEl = document.getElementById('game-canvas') as HTMLCanvasElement;
+    if (canvasEl) {
+      gameCanvas = new GameCanvas(canvasEl, state);
+      gameCanvas.setHandlers({
+        onHustle: () => {
+          triggerClick(state);
+          updateDashboardNumbers(state);
+        },
+        onCashOut: () => {
+          if (state.user.credits < 1000) return;
+          cashOut(state);
+          gameCanvas?.spawnConfetti();
+          showToast('Cashed out! New week starts now.');
+          updateDashboardNumbers(state);
+        },
+      });
+      gameCanvas.start();
+    }
+
     const hustleBtn = document.getElementById('hustle-btn');
-    hustleBtn?.addEventListener('click', (e) => {
-      const event = e as MouseEvent;
-      const earned = triggerClick(state);
-      spawnFloatingText(event.clientX, event.clientY, `+${earned.toFixed(1)}`);
+    hustleBtn?.addEventListener('click', () => {
+      triggerClick(state);
+      gameCanvas?.spawnHustleParticles();
+      gameCanvas?.pulseNode('player');
       gsap.fromTo(hustleBtn, { scale: 0.9 }, { scale: 1, duration: 0.3, ease: 'elastic.out(1, 0.4)' });
       updateDashboardNumbers(state);
     });
+
+    const cashOutBtn = document.getElementById('cash-out-btn');
+    cashOutBtn?.addEventListener('click', () => {
+      if (state.user.credits < 1000) return;
+      cashOut(state);
+      gameCanvas?.spawnConfetti();
+      showToast('Cashed out! New week starts now.');
+      updateDashboardNumbers(state);
+    });
+
     attachNavEvents(state);
   }
 
@@ -594,21 +586,13 @@ async function spawnFriendInvite(state: GameState): Promise<void> {
   render(state, 'company');
 }
 
-function showToast(message: string): void {
-  const existing = document.getElementById('toast');
-  if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.id = 'toast';
-  toast.className = 'toast';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  gsap.fromTo(toast, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.3, ease: 'power2.out' });
-  gsap.to(toast, { opacity: 0, y: -20, duration: 0.3, delay: 2.5, onComplete: () => toast.remove() });
-}
-
 // Countdown updater
 export function updateCountdown(state: GameState): void {
   const el = document.getElementById('countdown');
   if (!el || currentScreen !== 'dashboard') return;
   el.innerHTML = countdownHtml(timeUntilPayout(state.weekEndTime));
+}
+
+export function spawnConfetti(x?: number, y?: number): void {
+  gameCanvas?.spawnConfetti(x, y);
 }

@@ -4,11 +4,12 @@ import { computePassiveCps, saveState } from './state';
 
 let loopStarted = false;
 
-export function startGameLoop(state: GameState, onTick: () => void): void {
+export function startGameLoop(state: GameState, onTick: () => void, onLevelUp?: () => void): void {
   if (loopStarted) return;
   loopStarted = true;
 
   let frameCount = 0;
+  let lastCompanyLevel = state.company?.level ?? 1;
 
   gsap.ticker.add((_time, deltaTime) => {
     const cps = computePassiveCps(state);
@@ -22,6 +23,10 @@ export function startGameLoop(state: GameState, onTick: () => void): void {
       while (state.company.poolCredits >= nextLevelCost) {
         state.company.poolCredits -= nextLevelCost;
         state.company.level += 1;
+      }
+      if (state.company.level > lastCompanyLevel) {
+        lastCompanyLevel = state.company.level;
+        onLevelUp?.();
       }
     }
     frameCount += 1;
