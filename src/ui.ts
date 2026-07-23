@@ -13,6 +13,8 @@ import { triggerClick, cashOut, completeTask } from './loop';
 import { briefcaseSvg, coinSvg, ledgerSvg, trophySvg } from './assets';
 
 let currentScreen: Screen = 'onboarding';
+const taskCooldowns = new Map<string, number>();
+const TASK_COOLDOWN_MS = 5000;
 
 function formatCredits(value: number): string {
   return Math.floor(value).toLocaleString();
@@ -224,9 +226,9 @@ function companyCard(state: GameState): string {
         <span style="font-size:13px;color:var(--gray)">${company.members.length + 1} members</span>
       </div>
       <div class="progress-track mb-2">
-        <div class="progress-fill" style="width:${Math.min(100, company.level * 15)}%"></div>
+        <div class="progress-fill" style="width:${Math.min(100, (company.poolCredits / (company.level * 500)) * 100)}%"></div>
       </div>
-      <p style="font-size:13px;color:var(--gray)">Next level requires more pooled credits.</p>
+      <p style="font-size:13px;color:var(--gray)">${formatCredits(Math.max(0, company.level * 500 - company.poolCredits))} credits to next level</p>
     </div>
   `;
 }
@@ -293,8 +295,9 @@ export function renderCompany(state: GameState): string {
           <span class="mono">${company.members.length + 1}</span>
         </div>
         <div class="progress-track mb-2">
-          <div class="progress-fill" style="width:${Math.min(100, company.level * 15)}%"></div>
+          <div class="progress-fill" style="width:${Math.min(100, (company.poolCredits / (company.level * 500)) * 100)}%"></div>
         </div>
+        <p style="font-size:13px;color:var(--gray)">${formatCredits(Math.max(0, company.level * 500 - company.poolCredits))} credits to next level</p>
       </div>
       <div class="card mb-3">
         <h3 class="mb-2">Members</h3>
@@ -483,12 +486,30 @@ function attachEvents(state: GameState, screen: Screen): void {
 
   if (screen === 'tasks') {
     document.querySelectorAll('.task-card').forEach((card) => {
+      const taskId = card.getAttribute('data-task') || '';
+      const cooldownUntil = taskCooldowns.get(taskId) || 0;
+      const isOnCooldown = Date.now() < cooldownUntil;
+      if (isOnCooldown) {
+        card.setAttribute('aria-disabled', 'true');
+        card.setAttribute('style', 'opacity:0.6;cursor:not-allowed');
+      }
       card.addEventListener('click', () => {
+        const now = Date.now();
+        if (now < (taskCooldowns.get(taskId) || 0)) {
+          showToast('Cooling down, try again soon');
+          return;
+        }
         const reward = parseFloat(card.getAttribute('data-reward') || '0');
         completeTask(state, reward);
+        taskCooldowns.set(taskId, now + TASK_COOLDOWN_MS);
+        card.setAttribute('style', 'opacity:0.6;cursor:not-allowed');
+        card.setAttribute('aria-disabled', 'true');
         gsap.to(card, { scale: 0.98, duration: 0.1, yoyo: true, repeat: 1 });
         const rect = card.getBoundingClientRect();
         spawnFloatingText(rect.left + rect.width / 2, rect.top, `+${reward}`);
+        setTimeout(() => {
+          if (currentScreen === 'tasks') render(state, 'tasks');
+        }, TASK_COOLDOWN_MS);
       });
     });
     attachNavEvents(state);
@@ -532,9 +553,32 @@ function spawnFloatingText(x: number, y: number, text: string): void {
   );
 }
 
-function spawnFriendInvite(state: GameState): void {
+async function spawnFriendInvite(state: GameState): Promise<void> {
+  const inviteUrl = `https://clankey88.github.io/ledger-game/?ref=${state.user.id}`;
+  const message = `Join my company on Ledger and help me cash out this Sunday! ${inviteUrl}`;
+
+  // Prefer native share on mobile
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Join my Ledger company', text: message, url: inviteUrl });
+      showToast('Invite sent!');
+    } catch {
+      showToast('Invite cancelled');
+    }
+    return;
+  }
+
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(message);
+    showToast('Invite link copied!');
+    return;
+  }
+
+  showToast('Share this link: ' + inviteUrl);
+
+  // Demo fallback: simulate a friend joining when sharing isn't available
   const names = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley'];
-  const avatars = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊'];
+  const avatars = ['🐶', '', '🐭', '🐹', '🐰', '🦊'];
   const name = names[Math.floor(Math.random() * names.length)];
   const avatar = avatars[Math.floor(Math.random() * avatars.length)];
   addMember(state, {

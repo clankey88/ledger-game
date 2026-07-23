@@ -5,6 +5,8 @@
 🎮 **Play:** https://clankey88.github.io/ledger-game  
 📦 **Repo:** https://github.com/clankey88/ledger-game
 
+> **Note:** To make the Play link work, enable GitHub Pages in repo settings (Settings → Pages → Source: Deploy from a branch → `master` / `root`).
+
 You are a Ledger in a world run by businesses. Create a company, invite friends, earn credits, and convert them to money every Sunday.
 
 ![Ledger screenshot](./public/screenshot.png)
